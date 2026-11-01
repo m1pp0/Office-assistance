@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8"><title>Office Assistant</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+</head>
+<body class="p-6 min-h-screen text-slate-800 bg-cover bg-center bg-fixed" style="background-image: linear-gradient(rgba(241,245,249,0.88), rgba(241,245,249,0.88)), url('https://i.pinimg.com/736x/1d/28/87/1d288714052221c3e146e11e540f4ceb.jpg');">
+  <div id="app" class="max-w-5xl mx-auto space-y-6">
+    
+    <header class="bg-white/95 backdrop-blur-sm p-4 rounded-xl border flex justify-between items-center shadow-sm">
+      <h1 class="text-xl font-bold">Office Assistant</h1>
+      <div class="flex gap-3">
+        <select v-model="uid" @change="load" class="border rounded-lg px-3 py-1.5 text-sm bg-slate-50">
+          <option v-for="u in users" :key="u.id" :value="u.id">{{ u.full_name }} ({{ u.team?.name || 'Без команды' }})</option>
+        </select>
+        <input type="date" v-model="date" @change="load" class="border rounded-lg px-3 py-1.5 text-sm bg-slate-50">
+      </div>
+    </header>
+
+    <main class="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <!-- Столы -->
+      <section class="md:col-span-2 bg-white/95 backdrop-blur-sm p-5 rounded-xl border shadow-sm">
+        <div class="flex justify-between items-center mb-4">
+          <h2 class="font-bold">Столы</h2>
+          <div class="flex gap-3 text-xs text-slate-600">
+            <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 bg-emerald-500 rounded-full"></span> Свободен</span>
+            <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 bg-blue-500 rounded-full"></span> Команда</span>
+            <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 bg-slate-400 rounded-full"></span> Занят</span>
+          </div>
+        </div>
+        <div class="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
+          <div v-for="d in desks" :key="d.id" @click="!d.is_booked && act('/bookings/desk', 'POST', {resource_type:'desk', resource_id:d.id, booking_date:date})"
+            :class="[d.is_booked ? (d.is_teammate ? 'bg-blue-50 border-blue-200' : 'bg-slate-50 border-slate-200 opacity-60') : 'bg-emerald-50 border-emerald-300 hover:border-emerald-500 cursor-pointer', 'p-2.5 border rounded-lg h-20 flex flex-col justify-between text-xs transition']">
+            <div class="flex justify-between font-bold">
+              <span>{{ d.code }}</span>
+              <span :class="d.is_booked ? (d.is_teammate ? 'bg-blue-500' : 'bg-slate-400') : 'bg-emerald-500'" class="w-2 h-2 rounded-full"></span>
+            </div>
+            <div>
+              <template v-if="d.is_booked">
+                <p class="truncate font-medium text-slate-700">{{ d.booked_by_name }}</p>
+                <button v-if="d.booked_by_user_id === uid" @click.stop="act(`/bookings/${d.booking_id}`, 'DELETE')" class="text-rose-600 hover:underline font-semibold block mt-0.5">Освободить</button>
+              </template>
+              <span v-else class="text-emerald-700">Свободно</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Переговорки -->
+      <section class="bg-white/95 backdrop-blur-sm p-5 rounded-xl border space-y-4 shadow-sm">
+        <h2 class="font-bold">Переговорки</h2>
+        <div v-for="r in rooms" :key="r.id" class="p-3 border rounded-lg space-y-2" :class="r.is_booked ? 'bg-slate-50' : 'bg-emerald-50 border-emerald-200'">
+          <div class="flex justify-between items-start">
+            <div>
+              <p class="font-bold text-sm">{{ r.name }}</p>
+              <p class="text-xs text-slate-500">До {{ r.capacity }} чел.</p>
+            </div>
+            <span class="text-[11px] font-semibold px-1.5 py-0.5 rounded" :class="r.is_booked ? 'bg-slate-200 text-slate-700' : 'bg-emerald-100 text-emerald-800'">
+              {{ !r.is_booked ? 'Свободна' : (r.status === 'confirmed' ? 'Занята' : 'Ожидает чек-ин') }}
+            </span>
+          </div>
+          <p v-if="r.is_booked" class="text-xs text-slate-600">Занял: {{ r.booked_by_name }}</p>
+          <div class="flex flex-col gap-1.5 pt-1">
+            <button v-if="!r.is_booked" @click="act('/bookings/room', 'POST', {resource_type:'room', resource_id:r.id, booking_date:date})" class="w-full bg-slate-900 text-white text-xs py-1.5 rounded hover:bg-slate-800 transition">Занять</button>
+            <button v-if="r.is_booked && r.status === 'pending'" @click="act(`/bookings/${r.booking_id}/check-in`, 'POST')" class="w-full bg-amber-500 text-white text-xs py-1.5 rounded hover:bg-amber-600 transition">Подтвердить (Check-in)</button>
+            <button v-if="r.is_booked && r.booked_by_user_id === uid" @click="act(`/bookings/${r.booking_id}`, 'DELETE')" class="w-full text-rose-600 border border-rose-200 text-xs py-1 rounded hover:bg-rose-50 transition">Отменить</button>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const { createApp, ref, onMounted } = Vue;
+    createApp({
+      setup() {
+        const users = ref([]), desks = ref([]), rooms = ref([]), uid = ref(null), date = ref(new Date().toISOString().split('T')[0]);
+        
+        const load = async () => {
+          if (!uid.value) return;
+          const [d, r] = await Promise.all([
+            fetch(`/api/desks/state?booking_date=${date.value}`, { headers: { 'X-User-Id': uid.value } }).then(res => res.json()),
+            fetch(`/api/rooms/state?booking_date=${date.value}`).then(res => res.json())
+          ]);
+          desks.value = d; rooms.value = r;
+        };
+
+        const act = async (endpoint, method, body) => {
+          const res = await fetch('/api' + endpoint, {
+            method,
+            headers: { 'Content-Type': 'application/json', 'X-User-Id': uid.value },
+            body: body ? JSON.stringify(body) : undefined
+          });
+          const data = await res.json();
+          if (!res.ok) alert(data.detail || 'Ошибка');
+          await load();
+        };
+
+        onMounted(async () => {
+          users.value = await fetch('/api/auth/users').then(res => res.json());
+          if (users.value.length) uid.value = users.value[0].id;
+          await load();
+        });
+
+        return { users, desks, rooms, uid, date, load, act };
+      }
+    }).mount('#app');
+  </script>
+</body>
+</html>
